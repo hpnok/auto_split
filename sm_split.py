@@ -9,15 +9,8 @@ import mss
 import time
 import route
 from win32 import win32gui  ## pywinauto???
+from const import *
 
-SM_HUD_HEIGHT = 31*4  # when scaled 4x31
-CROP_BOTTOM = 20*4  # remove slice where input/info are drawn
-SM_SIZE = (1196, 896)  # 4*(16*16*7/6, 16*14) when scaled 4x in 4:3 from 8:7
-SCAN_SIZE = (16*16, 16*14 - SM_HUD_HEIGHT//4 - CROP_BOTTOM//4)
-scale = (SCAN_SIZE[0]/SM_SIZE[0], SCAN_SIZE[1]/(SM_SIZE[1] - SM_HUD_HEIGHT))
-color = {"found": (198, 44, 90),
-         "not_found": (154, 112, 218)}
-transition_time = {"vertical": 58, "horizontal": 65}
 
 
 def track_window_position(monitor_dict):
@@ -110,6 +103,11 @@ def draw(surface, ox, oy, current_time, route, split_id):
             surface.blit(surf, (surface.get_width() - font_spacing - surf.get_width(), y))
             break
         y += font_spacing + surf.get_height()
+
+    surf = font.render(str(route[0].event.debug_value), True, color["not_found"])
+    surface.blit(surf, (x, surface.get_height() - 2*surf.get_height() - 2*font_spacing))
+    surf = font.render(str(sleep_time), True, color["not_found"])
+    surface.blit(surf, (x, surface.get_height() - surf.get_height() - font_spacing))
     pygame.display.flip()
 
 """
@@ -210,13 +208,21 @@ with mss.mss() as sct:
             time.sleep(0.05)
             continue
         #last_time = time.time()
+        frame_time = time.perf_counter()
         track_window_position(monitor)
         img = np.array(sct.grab(monitor))
         img = cv2.resize(img, SCAN_SIZE)
         #test.frame_test(img)
         if not run_finish:
             current_split = route.route[split_id]
-            match_value = current_split.event.frame_test(img)
+            result = current_split.test(img, frame_time, start_time)
+            if result[0] > 0 and not start_time:
+                start_time = frame_time
+            split_id += result[0]
+            if split_id >= len(route.route):
+                run_finish = True
+            sleep_time = result[1] + frame_time
+            """match_value = current_split.event.frame_test(img)
             if match_value:
                 if not start_time:
                     start_time = time.perf_counter()
@@ -227,14 +233,13 @@ with mss.mss() as sct:
                     split_id += 1
                 else:
                     run_finish = True
-                sleep_time = current_split.time + start_time + current_split.sleep_time
+                sleep_time = current_split.time + start_time + current_split.sleep_time"""
         #print(match_value)
         if start_time:
-            current_time = time.perf_counter() - start_time
+            current_time = frame_time - start_time
         else:
             current_time = 0
         draw(screen, font_spacing, font_spacing, current_time, route.route, split_id)
-
 
 pygame.quit()
 
